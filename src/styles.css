@@ -1,0 +1,90 @@
+:root {
+  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
+  color: #1f2937;
+  background: #f8fafc;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+}
+
+.page {
+  min-height: 100vh;
+  padding: 2rem;
+}
+
+.header {
+  max-width: 780px;
+  margin-bottom: 1.5rem;
+}
+
+.status {
+  font-size: 0.95rem;
+  color: #1d4ed8;
+}
+
+.camera-panel {
+  margin-bottom: 1rem;
+  display: inline-flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.camera {
+  width: min(420px, 100%);
+  border: 1px solid #cbd5e1;
+  border-radius: 12px;
+  background: #0f172a;
+  transform: scaleX(-1);
+}
+
+.grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+.card,
+.actions {
+  border: 1px solid #cbd5e1;
+  border-radius: 12px;
+  background: #fff;
+  padding: 1rem;
+}
+
+.actions {
+  margin-top: 1rem;
+  display: grid;
+  gap: 0.75rem;
+  max-width: 520px;
+}
+
+button,
+a,
+input {
+  font: inherit;
+}
+
+.gesture-cursor {
+  width: 14px;
+  height: 14px;
+  background: #ef4444;
+  border-radius: 999px;
+  position: fixed;
+  left: -7px;
+  top: -7px;
+  pointer-events: none;
+  z-index: 1000;
+}
+
+.target-highlight {
+  position: fixed;
+  border: 2px solid #3b82f6;
+  border-radius: 10px;
+  pointer-events: none;
+  z-index: 999;
+}
