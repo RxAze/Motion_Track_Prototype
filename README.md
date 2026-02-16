@@ -1,103 +1,59 @@
-# Motion Track Prototype
+# Motion Track Prototype (React Starter)
 
-This repository contains a practical execution plan for building an **in-browser hand-gesture control layer** for websites using a React-first workflow.
+A React-first starter for building an **in-browser hand-gesture control layer** that can later be extracted into an SDK for e-commerce, social, and dashboard sites.
 
-## Can this be built today?
-Yes. With current browser APIs and on-device ML (MediaPipe Hands/Face), you can build a production-capable gesture-controlled web experience.
+## What changed from the previous draft
+This repository now includes an actual React + TypeScript starter structure with a working overlay, target highlighting, and click simulation logic so you can begin implementation immediately (instead of documentation only).
 
-## Recommended stack (React-first)
-- **Frontend app/demo:** React + Vite + TypeScript
-- **Tracking:** MediaPipe Hands (JavaScript)
-- **Camera:** `navigator.mediaDevices.getUserMedia`
-- **Overlay rendering:** Canvas
-- **Packaging for reuse:** npm package + CDN bundle
+## Quick start
+```bash
+npm install
+npm run dev
+```
 
-## Realistic timeline with AI coding assistants (Codex/Claude)
+Open the local URL shown by Vite and click **Enable Gesture Mode**. The current prototype uses mouse position as a placeholder pointer source so you can test the interaction layer while integrating MediaPipe.
 
-### If you focus 1–2 hours/day
-- **Prototype** (camera + landmarks + cursor + pinch click): **5–10 days**
-- **Usable MVP** (snap-to-target + scroll + rest mode + calibration): **3–6 weeks**
-- **Drop-in SDK** (works across many sites): **6–10 weeks**
-- **Product-grade + platform integrations** (Shopify/Webflow/WordPress): **2–4 months**
+## Current implementation status
+- ✅ React + Vite + TypeScript app scaffold
+- ✅ Gesture overlay cursor
+- ✅ Clickable-target detection (`a`, `button`, inputs, semantic roles)
+- ✅ Snap-to-target highlight
+- ✅ Pinch-click placeholder action (currently simulated by native click)
+- 🔜 MediaPipe Hands integration (replace placeholder pointer)
+- 🔜 Smoothing + hysteresis pinch detector
+- 🔜 Scroll gesture and rest mode
 
-### If you focus 3–4 hours/day
-- **Prototype:** **3–6 days**
-- **Usable MVP:** **2–4 weeks**
-- **Drop-in SDK:** **4–7 weeks**
-- **Product-grade + integrations:** **6–10 weeks**
-
-> AI shortens implementation time significantly, but the hardest work still comes from UX tuning, stability, and cross-site DOM edge cases.
-
-## 14-day plan (React, in-browser only)
-
-### Days 1–2: Camera + overlay foundation
-- Build webcam page with `<video>` and `<canvas>` overlay.
-- Ensure coordinate systems match responsive layout.
-
-### Days 3–4: Hand tracking
-- Integrate MediaPipe Hands.
-- Draw landmarks at stable frame rate.
-
-### Day 5: Pointer mapping
-- Use index fingertip landmark as cursor.
-- Map normalized model coordinates to viewport coordinates.
-
-### Day 6: Stabilization
-- Add EMA smoothing.
-- Add dead-zone filtering for micro-jitter.
-
-### Day 7: Pinch detection
-- Detect thumb-index distance with hysteresis thresholds.
-- Emit `pinchStart` / `pinchEnd`.
-
-### Day 8: Click state machine
-- Implement `idle -> armed -> pressed -> cooldown`.
-- Add visual click feedback ring.
-
-### Days 9–10: DOM snap targeting
-- Build clickable candidate detector (`a`, `button`, `input`, `[role="button"]`, etc.).
-- Snap to nearest target within radius and highlight.
-
-### Day 11: Scroll interactions
-- Add one reliable scroll gesture.
-- Scroll nearest scrollable container under cursor.
-
-### Day 12: Calibration + rest mode
-- Calibration prompt.
-- Hands-down disables control.
-
-### Day 13: Demo scenes
-- E-commerce cards, social feed, and form interactions.
-
-### Day 14: Polish and demo readiness
-- Add settings panel for thresholds and sensitivity.
-- Validate on multiple lighting/device conditions.
-
-## Core architecture (extractable to SDK)
-
+## Project layout
 ```text
 src/
   gesture/
-    tracker/      # MediaPipe wrapper
-    pointer/      # smoothing + coordinate mapping
-    gestures/     # pinch/scroll detectors + state machines
-    dom/          # clickable detection + snap + action dispatch
-    ui/           # overlay cursor/highlight/calibration widgets
-  demo/           # showcase pages for ecommerce/social/forms
+    useGestureControl.ts   # shared interaction layer hook
+  App.tsx                 # demo page with interactive elements
+  main.tsx
+  styles.css
 ```
 
-## What makes it feel good (not gimmicky)
-- Temporal smoothing + velocity clamps
-- Snap-to-target with visual confirmation
-- Gesture state machine with cooldowns
-- Rest/activate flow to reduce fatigue
-- Keyboard/mouse fallback and accessibility-safe defaults
+## 14-day execution plan (1–2h/day)
+1. Camera + MediaPipe stream
+2. Map index fingertip to viewport
+3. Add EMA smoothing + dead zone
+4. Add pinch detector state machine (hysteresis)
+5. Trigger click on snapped target
+6. Add drag/hold gesture
+7. Add scroll gesture
+8. Add calibration + rest mode
+9. Add settings panel (sensitivity/radius)
+10. Add profile presets (ecommerce/social/dashboard)
+11. Optimize performance and low-light behavior
+12. Add accessibility/fallback paths
+13. Package as npm + CDN build
+14. Ship demo and docs
 
-## Immediate next step
-Start by implementing:
-1. webcam + overlay,
-2. fingertip cursor,
-3. pinch click,
-4. snap-to-target.
+## Timeline expectations with Codex/Claude support
+- **Prototype:** 5–10 days at 1–2h/day
+- **Usable MVP:** 3–6 weeks at 1–2h/day
+- **Cross-site SDK:** 6–10 weeks at 1–2h/day
+- **Product-grade integrations:** 2–4 months
 
-That gives you a compelling demo quickly and a solid foundation for a reusable SDK.
+## Next immediate step
+Integrate MediaPipe landmarks into `useGestureControl` by replacing the temporary pointer source with camera landmark coordinates and adding pinch state transitions.
