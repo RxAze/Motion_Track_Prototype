@@ -26,6 +26,7 @@ export const ZOOM_CONSTANTS = {
   MAX_FRAME_ZOOM_STEP: 0.04,
   HAND_VELOCITY_LIMIT: 0.18,
   COOLDOWN_MS: 180,
+  DISABLE_RESET_MS: 120,
   MIN_ZOOM: 0.6,
   MAX_ZOOM: 2.2,
 } as const;
@@ -84,10 +85,11 @@ export function zoomStateMachine(params: {
   stableDelta: number;
   isClickActive: boolean;
   handVelocity: number;
+  disableZoom: boolean;
 }) {
-  const { engine, nowMs, smoothedPinch, stableDelta, isClickActive, handVelocity } = params;
+  const { engine, nowMs, smoothedPinch, stableDelta, isClickActive, handVelocity, disableZoom } = params;
 
-  if (isClickActive || handVelocity > ZOOM_CONSTANTS.HAND_VELOCITY_LIMIT) {
+  if (disableZoom || isClickActive || handVelocity > ZOOM_CONSTANTS.HAND_VELOCITY_LIMIT) {
     engine.state = 'IDLE';
     engine.consistentFrames = 0;
     engine.baselinePinch = smoothedPinch;
@@ -140,8 +142,9 @@ export function updateZoomGesture(params: {
   nowMs: number;
   isClickActive: boolean;
   handVelocity: number;
+  disableZoom: boolean;
 }) {
-  const { engine, landmarks, nowMs, isClickActive, handVelocity } = params;
+  const { engine, landmarks, nowMs, isClickActive, handVelocity, disableZoom } = params;
 
   const normalizedPinch = computeNormalizedPinch(landmarks);
 
@@ -172,6 +175,7 @@ export function updateZoomGesture(params: {
     stableDelta,
     isClickActive,
     handVelocity,
+    disableZoom,
   });
 
   if (engine.state !== 'ZOOMING') {

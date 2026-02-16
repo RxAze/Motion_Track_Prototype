@@ -81,6 +81,8 @@ const DEPTH_TOUCH_COOLDOWN_MS = 700;
 const SCROLL_PALM_DELTA_THRESHOLD = 0.007;
 const SCROLL_GAIN = 760;
 const SCROLL_COOLDOWN_MS = 12;
+const SCROLL_ARM_FRAMES = 4;
+const SCROLL_MIN_PALM_SPREAD = 0.11;
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
@@ -103,13 +105,24 @@ function isFingerExtended(landmarks: Landmark[], tipIndex: number, pipIndex: num
 }
 
 function isOpenPalm(landmarks: Landmark[]) {
-  const extendedCount = [
-    isFingerExtended(landmarks, 8, 6),
-    isFingerExtended(landmarks, 12, 10),
-    isFingerExtended(landmarks, 16, 14),
-    isFingerExtended(landmarks, 20, 18),
-  ].filter(Boolean).length;
-  return extendedCount >= 3;
+  const indexOpen = isFingerExtended(landmarks, 8, 6);
+  const middleOpen = isFingerExtended(landmarks, 12, 10);
+  const ringOpen = isFingerExtended(landmarks, 16, 14);
+  const pinkyOpen = isFingerExtended(landmarks, 20, 18);
+
+  const thumbTip = landmarks[4];
+  const thumbIp = landmarks[3];
+  const indexMcp = landmarks[5];
+  const pinkyMcp = landmarks[17];
+
+  const thumbOpen = Boolean(thumbTip && thumbIp && thumbTip.x < thumbIp.x);
+  const palmSpread = thumbTip && pinkyMcp ? distance(thumbTip, pinkyMcp) : 0;
+  const lateralSpread = indexMcp && pinkyMcp ? distance(indexMcp, pinkyMcp) : 0;
+
+  const allFingersOpen = indexOpen && middleOpen && ringOpen && pinkyOpen && thumbOpen;
+  const spreadOpen = palmSpread > SCROLL_MIN_PALM_SPREAD || lateralSpread > SCROLL_MIN_PALM_SPREAD;
+
+  return allFingersOpen && spreadOpen;
 }
 
 function getScrollContainerAtPoint(point: Point): HTMLElement | Window {
@@ -294,6 +307,7 @@ export function useGestureControl({ enabled, videoRef, snapRadius = 100 }: UseGe
 
   const lastCursorRef = useRef<Point>({ x: window.innerWidth / 2, y: window.innerHeight / 2 });
   const previousPalmYRef = useRef<number | null>(null);
+  const scrollArmFramesRef = useRef(0);
 
   const zoomEngineRef = useRef(createZoomEngine(1));
 
@@ -322,6 +336,7 @@ export function useGestureControl({ enabled, videoRef, snapRadius = 100 }: UseGe
       previousIndexZRef.current = null;
       previousPalmYRef.current = null;
       previousIndexRef.current = null;
+      scrollArmFramesRef.current = 0;
 
       cameraRef.current?.stop();
       cameraRef.current = null;
@@ -403,6 +418,7 @@ export function useGestureControl({ enabled, videoRef, snapRadius = 100 }: UseGe
             clickStateRef.current = 'IDLE';
             pinchStartCandidateAtRef.current = null;
             stablePinchFramesRef.current = 0;
+            scrollArmFramesRef.current = 0;
             return;
           }
 
@@ -414,7 +430,14 @@ export function useGestureControl({ enabled, videoRef, snapRadius = 100 }: UseGe
 
           const palmOpen = isOpenPalm(hand);
           const palmCenterY = (wrist.y + middleMcp.y) / 2;
-          if (palmOpen && previousPalmYRef.current !== null) {
+          if (palmOpen) {
+            scrollArmFramesRef.current += 1;
+          } else {
+            scrollArmFramesRef.current = 0;
+          }
+
+          const scrollArmed = palmOpen && scrollArmFramesRef.current >= SCROLL_ARM_FRAMES;
+          if (scrollArmed && previousPalmYRef.current !== null) {
             const palmDelta = palmCenterY - previousPalmYRef.current;
             setScrollModeActive(true);
             if (Math.abs(palmDelta) > SCROLL_PALM_DELTA_THRESHOLD && now - lastScrollTimeRef.current > SCROLL_COOLDOWN_MS) {
@@ -423,6 +446,8 @@ export function useGestureControl({ enabled, videoRef, snapRadius = 100 }: UseGe
               scrollByTarget(target, scrollDelta);
               lastScrollTimeRef.current = now;
               setStatus('Open palm scroll');
+            } else {
+              setStatus('Open palm armed');
             }
             previousPalmYRef.current = palmCenterY;
             return;
@@ -498,6 +523,7 @@ export function useGestureControl({ enabled, videoRef, snapRadius = 100 }: UseGe
             nowMs: now,
             isClickActive: clickStateRef.current === 'PINCHING' || clickStateRef.current === 'CLICKED',
             handVelocity,
+            disableZoom: palmOpen || scrollArmed,
           });
 
           setZoomScale(zoomResult.zoom);

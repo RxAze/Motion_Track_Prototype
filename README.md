@@ -47,6 +47,10 @@ The module includes tunable constants at top:
 4. **Click separation**
    - Zoom is disabled while pinch-click state is active (`PINCHING`/`CLICKED`) to avoid accidental overlap.
 
+5. **Scroll/zoom separation guard**
+   - Scroll requires a fully open palm (all fingers extended + spread validation + arm frames).
+   - Zoom is disabled whenever palm-open scroll gesture is detected/armed, preventing mixed mode confusion.
+
 ## App architecture improvements
 - Multi-page engagement structure with tabs:
   - Home, Shop, Social, About
@@ -66,6 +70,7 @@ const zoomResult = updateZoomGesture({
   nowMs: performance.now(),
   isClickActive: clickState === 'PINCHING' || clickState === 'CLICKED',
   handVelocity,
+  disableZoom: isOpenPalm,
 });
 
 // Apply to DOM/canvas/camera transform:
