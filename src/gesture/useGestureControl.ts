@@ -104,6 +104,9 @@ export function useGestureControl({ enabled, videoRef, snapRadius = 100 }: UseGe
   const pinchActiveRef = useRef(false);
   const depthTouchActiveRef = useRef(false);
   const lastDepthTouchTimeRef = useRef(0);
+
+  const targetElementRef = useRef<HTMLElement | null>(null);
+  const pinchActiveRef = useRef(false);
   const cameraRef = useRef<MediaPipeCamera | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
 
@@ -185,6 +188,12 @@ export function useGestureControl({ enabled, videoRef, snapRadius = 100 }: UseGe
         });
 
         const smoothing = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
+          minDetectionConfidence: 0.7,
+          minTrackingConfidence: 0.6,
+          selfieMode: true,
+        });
+
+        const smoothing = { x: cursor.x, y: cursor.y };
 
         hands.onResults((results) => {
           const hand = results.multiHandLandmarks?.[0];
@@ -223,6 +232,12 @@ export function useGestureControl({ enabled, videoRef, snapRadius = 100 }: UseGe
 
           smoothing.x = clamp(smoothing.x, 0, window.innerWidth);
           smoothing.y = clamp(smoothing.y, 0, window.innerHeight);
+          const rawX = (1 - indexTip.x) * window.innerWidth;
+          const rawY = indexTip.y * window.innerHeight;
+
+          const alpha = 0.25;
+          smoothing.x = alpha * rawX + (1 - alpha) * smoothing.x;
+          smoothing.y = alpha * rawY + (1 - alpha) * smoothing.y;
 
           setCursor({ x: smoothing.x, y: smoothing.y });
           setStatus('Tracking hand');
@@ -248,6 +263,15 @@ export function useGestureControl({ enabled, videoRef, snapRadius = 100 }: UseGe
           } else if (depthTouchActiveRef.current && indexTip.z > DEPTH_TOUCH_END_Z) {
             depthTouchActiveRef.current = false;
             setDepthTouchActive(false);
+          }
+          const pinchStartThreshold = 0.045;
+          const pinchEndThreshold = 0.07;
+
+          if (!pinchActiveRef.current && pinchDistance < pinchStartThreshold) {
+            pinchActiveRef.current = true;
+            targetElementRef.current?.click();
+          } else if (pinchActiveRef.current && pinchDistance > pinchEndThreshold) {
+            pinchActiveRef.current = false;
           }
         });
 
@@ -332,5 +356,7 @@ export function useGestureControl({ enabled, videoRef, snapRadius = 100 }: UseGe
       depthTouchActive,
     }),
     [cameraReady, cursor, depthTouchActive, status, targetRect],
+    }),
+    [cursor, targetRect, cameraReady, status],
   );
 }
