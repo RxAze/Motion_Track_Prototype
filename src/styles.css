@@ -22,6 +22,26 @@ body {
   margin-bottom: 1.5rem;
 }
 
+.status {
+  font-size: 0.95rem;
+  color: #1d4ed8;
+}
+
+.camera-panel {
+  margin-bottom: 1rem;
+  display: inline-flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.camera {
+  width: min(420px, 100%);
+  border: 1px solid #cbd5e1;
+  border-radius: 12px;
+  background: #0f172a;
+  transform: scaleX(-1);
+}
+
 .grid {
   display: grid;
   gap: 1rem;

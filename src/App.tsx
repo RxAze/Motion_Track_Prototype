@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useGestureControl } from './gesture/useGestureControl';
 
 const demoProducts = [
@@ -10,23 +10,30 @@ const demoProducts = [
 export function App() {
   const [enabled, setEnabled] = useState(false);
   const [cartCount, setCartCount] = useState(0);
+  const videoRef = useRef<HTMLVideoElement>(null);
 
   const onEnableText = useMemo(
     () => (enabled ? 'Disable Gesture Mode' : 'Enable Gesture Mode'),
     [enabled],
   );
 
-  const gesture = useGestureControl({ enabled });
+  const gesture = useGestureControl({ enabled, videoRef });
 
   return (
     <main className="page">
       <header className="header">
         <h1>Motion Track Prototype</h1>
         <p>
-          Starter interaction layer for gesture-controlled websites. Pointer source is currently mocked with mouse movement for quick testing.
+          Gesture layer with camera + hand tracking via MediaPipe. Pinch near a highlighted target to trigger click.
         </p>
         <button onClick={() => setEnabled((prev) => !prev)}>{onEnableText}</button>
+        <p className="status">Status: {gesture.status}</p>
       </header>
+
+      <section className="camera-panel" aria-label="Camera preview">
+        <video ref={videoRef} className="camera" autoPlay muted playsInline />
+        <p>{gesture.cameraReady ? 'Camera ready' : 'Camera inactive'}</p>
+      </section>
 
       <section className="grid" aria-label="Products">
         {demoProducts.map((item) => (
