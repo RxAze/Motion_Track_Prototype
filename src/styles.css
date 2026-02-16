@@ -88,3 +88,8 @@ input {
   pointer-events: none;
   z-index: 999;
 }
+
+.gesture-cursor-touch {
+  box-shadow: 0 0 0 8px rgba(239, 68, 68, 0.25);
+  background: #dc2626;
+}

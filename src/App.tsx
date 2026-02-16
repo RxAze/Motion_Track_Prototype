@@ -24,6 +24,7 @@ export function App() {
       <header className="header">
         <h1>Motion Track Prototype</h1>
         <p>
+          Gesture layer with camera + hand tracking via MediaPipe. Pinch or depth-touch near a highlighted target to trigger click.
           Gesture layer with camera + hand tracking via MediaPipe. Pinch near a highlighted target to trigger click.
         </p>
         <button onClick={() => setEnabled((prev) => !prev)}>{onEnableText}</button>
@@ -57,6 +58,7 @@ export function App() {
       {enabled && (
         <>
           <div
+            className={`gesture-cursor ${gesture.depthTouchActive ? 'gesture-cursor-touch' : ''}`.trim()}
             className="gesture-cursor"
             style={{ transform: `translate(${gesture.cursor.x}px, ${gesture.cursor.y}px)` }}
           />
