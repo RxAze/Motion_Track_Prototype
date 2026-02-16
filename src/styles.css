@@ -105,6 +105,12 @@ button:hover { filter: brightness(1.08); }
   background: #0f172a;
 }
 
+
+.zoom-surface {
+  transition: transform 60ms linear;
+  will-change: transform;
+}
+
 .dashboard-grid,
 .product-grid,
 .feed {

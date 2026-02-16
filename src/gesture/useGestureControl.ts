@@ -1,8 +1,8 @@
 import { RefObject, useEffect, useMemo, useRef, useState } from 'react';
+import { createZoomEngine, updateZoomGesture, type Landmark, type ZoomGestureState } from './zoomGesture';
 
 type Point = { x: number; y: number };
 type TargetRect = { left: number; top: number; width: number; height: number };
-type Landmark = { x: number; y: number; z: number };
 
 type UseGestureControlOptions = {
   enabled: boolean;
@@ -18,6 +18,8 @@ type UseGestureControlReturn = {
   depthTouchActive: boolean;
   scrollModeActive: boolean;
   pinchConfidence: number;
+  zoomScale: number;
+  zoomState: ZoomGestureState;
 };
 
 type HandResults = { multiHandLandmarks?: Landmark[][] };
@@ -42,9 +44,6 @@ declare global {
   }
 }
 
-// ============================
-// Tunable constants
-// ============================
 const CLICKABLE_SELECTOR = [
   'a[href]',
   'button:not([disabled])',
@@ -83,9 +82,6 @@ const SCROLL_PALM_DELTA_THRESHOLD = 0.007;
 const SCROLL_GAIN = 760;
 const SCROLL_COOLDOWN_MS = 12;
 
-// ============================
-// Helpers
-// ============================
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
@@ -136,10 +132,7 @@ function scrollByTarget(target: HTMLElement | Window, dy: number) {
   target.scrollBy({ top: dy, behavior: 'auto' });
 }
 
-// ============================
-// Requested core functions
-// ============================
-export function calculatePinchStrength(
+function calculatePinchStrength(
   landmarks: Landmark[],
   distanceHistory: number[],
 ): { strength: number; dynamicStart: number; dynamicEnd: number; avgDistance: number; handSpeedNorm: number } {
@@ -154,33 +147,26 @@ export function calculatePinchStrength(
   }
 
   const pinchDist = distance(thumb, index);
-  const handScale = Math.max(0.02, distance(wrist, middleMcp)); // dynamic size normalization
+  const handScale = Math.max(0.02, distance(wrist, middleMcp));
   const normalizedPinch = pinchDist / handScale;
 
   distanceHistory.push(normalizedPinch);
-  if (distanceHistory.length > PINCH_DISTANCE_WINDOW) {
-    distanceHistory.shift();
-  }
+  if (distanceHistory.length > PINCH_DISTANCE_WINDOW) distanceHistory.shift();
 
   const avgDistance = distanceHistory.reduce((a, b) => a + b, 0) / distanceHistory.length;
-
-  // Dynamic thresholds become more forgiving for small/far hands.
   const farScale = clamp(handScale / 0.16, 0.75, 1.2);
   const dynamicStart = PINCH_RATIO_START * farScale;
   const dynamicEnd = PINCH_RATIO_END * farScale;
 
-  // A lightweight confidence score: low distance + stable rolling average => high confidence.
   const confidenceFromDistance = clamp((dynamicEnd - avgDistance) / (dynamicEnd - dynamicStart), 0, 1);
-
   const handSpeedNorm = Math.hypot(index.x - indexMcp.x, index.y - indexMcp.y);
   const speedPenalty = clamp(handSpeedNorm / 0.22, 0, 1);
-
   const strength = clamp(confidenceFromDistance * (1 - speedPenalty * 0.45), 0, 1);
 
   return { strength, dynamicStart, dynamicEnd, avgDistance, handSpeedNorm };
 }
 
-export function updateCursorPosition(params: {
+function updateCursorPosition(params: {
   current: Point;
   rawTarget: Point;
   dtMs: number;
@@ -199,17 +185,14 @@ export function updateCursorPosition(params: {
   let nextX = alpha * targetX + (1 - alpha) * current.x;
   let nextY = alpha * targetY + (1 - alpha) * current.y;
 
-  // Micro jitter suppression.
   if (Math.abs(nextX - current.x) < DEAD_ZONE_PX) nextX = current.x;
   if (Math.abs(nextY - current.y) < DEAD_ZONE_PX) nextY = current.y;
 
-  // Cursor freeze/dampening while pinching for click stability.
   if (isPinching) {
     nextX = current.x + (nextX - current.x) * (1 - freezeWeight);
     nextY = current.y + (nextY - current.y) * (1 - freezeWeight);
   }
 
-  // Acceleration spike limiter.
   const maxStepByFps = MAX_CURSOR_STEP_PER_FRAME * clamp(dtMs / FRAME_INTERVAL_MS, 0.5, 1.6);
   const stepX = nextX - current.x;
   const stepY = nextY - current.y;
@@ -220,7 +203,6 @@ export function updateCursorPosition(params: {
     nextY = current.y + stepY * ratio;
   }
 
-  // Acceleration clamp between sequential updates.
   const accelX = clamp(stepX, -ACCELERATION_CLAMP, ACCELERATION_CLAMP);
   const accelY = clamp(stepY, -ACCELERATION_CLAMP, ACCELERATION_CLAMP);
 
@@ -230,7 +212,7 @@ export function updateCursorPosition(params: {
   };
 }
 
-export function detectStablePinch(params: {
+function detectStablePinch(params: {
   strength: number;
   avgDistance: number;
   dynamicStart: number;
@@ -244,13 +226,13 @@ export function detectStablePinch(params: {
   const rawStart = avgDistance < dynamicStart;
   const rawEnd = avgDistance > dynamicEnd;
 
-  const stableEnough = stableFrames >= PINCH_STABLE_FRAMES;
-  const heldEnough = heldMs >= PINCH_HOLD_MS;
-  const speedSafe = handSpeedNorm < PINCH_MAX_HAND_SPEED;
-  const confidenceOk = strength >= PINCH_MIN_CONFIDENCE;
-
   return {
-    shouldStartPinch: rawStart && stableEnough && heldEnough && speedSafe && confidenceOk,
+    shouldStartPinch:
+      rawStart &&
+      stableFrames >= PINCH_STABLE_FRAMES &&
+      heldMs >= PINCH_HOLD_MS &&
+      handSpeedNorm < PINCH_MAX_HAND_SPEED &&
+      strength >= PINCH_MIN_CONFIDENCE,
     shouldReleasePinch: rawEnd,
     confidence: strength,
   };
@@ -258,7 +240,7 @@ export function detectStablePinch(params: {
 
 type ClickState = 'IDLE' | 'PINCHING' | 'CLICKED' | 'RELEASED';
 
-export function clickStateMachine(params: {
+function clickStateMachine(params: {
   state: ClickState;
   shouldStartPinch: boolean;
   shouldReleasePinch: boolean;
@@ -266,7 +248,6 @@ export function clickStateMachine(params: {
   lastClickMs: number;
 }) {
   const { state, shouldStartPinch, shouldReleasePinch, nowMs, lastClickMs } = params;
-
   let nextState = state;
   let fireClick = false;
 
@@ -296,6 +277,8 @@ export function useGestureControl({ enabled, videoRef, snapRadius = 100 }: UseGe
   const [depthTouchActive, setDepthTouchActive] = useState(false);
   const [scrollModeActive, setScrollModeActive] = useState(false);
   const [pinchConfidence, setPinchConfidence] = useState(0);
+  const [zoomScale, setZoomScale] = useState(1);
+  const [zoomState, setZoomState] = useState<ZoomGestureState>('IDLE');
 
   const targetElementRef = useRef<HTMLElement | null>(null);
   const clickStateRef = useRef<ClickState>('IDLE');
@@ -307,9 +290,12 @@ export function useGestureControl({ enabled, videoRef, snapRadius = 100 }: UseGe
   const depthTouchActiveRef = useRef(false);
   const lastDepthTouchTimeRef = useRef(0);
   const previousIndexZRef = useRef<number | null>(null);
+  const previousIndexRef = useRef<Point | null>(null);
 
   const lastCursorRef = useRef<Point>({ x: window.innerWidth / 2, y: window.innerHeight / 2 });
   const previousPalmYRef = useRef<number | null>(null);
+
+  const zoomEngineRef = useRef(createZoomEngine(1));
 
   const cameraRef = useRef<MediaPipeCamera | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -324,6 +310,10 @@ export function useGestureControl({ enabled, videoRef, snapRadius = 100 }: UseGe
       setDepthTouchActive(false);
       setScrollModeActive(false);
       setPinchConfidence(0);
+      setZoomState('IDLE');
+
+      zoomEngineRef.current = createZoomEngine(1);
+      setZoomScale(1);
 
       clickStateRef.current = 'IDLE';
       pinchStartCandidateAtRef.current = null;
@@ -331,6 +321,7 @@ export function useGestureControl({ enabled, videoRef, snapRadius = 100 }: UseGe
       pinchDistanceHistoryRef.current = [];
       previousIndexZRef.current = null;
       previousPalmYRef.current = null;
+      previousIndexRef.current = null;
 
       cameraRef.current?.stop();
       cameraRef.current = null;
@@ -408,6 +399,7 @@ export function useGestureControl({ enabled, videoRef, snapRadius = 100 }: UseGe
             setScrollModeActive(false);
             setDepthTouchActive(false);
             setPinchConfidence(0);
+            setZoomState('IDLE');
             clickStateRef.current = 'IDLE';
             pinchStartCandidateAtRef.current = null;
             stablePinchFramesRef.current = 0;
@@ -420,14 +412,13 @@ export function useGestureControl({ enabled, videoRef, snapRadius = 100 }: UseGe
           const middleMcp = hand[9];
           if (!indexTip || !thumbTip || !wrist || !middleMcp) return;
 
-          // Whole-hand scrolling mode.
           const palmOpen = isOpenPalm(hand);
           const palmCenterY = (wrist.y + middleMcp.y) / 2;
           if (palmOpen && previousPalmYRef.current !== null) {
             const palmDelta = palmCenterY - previousPalmYRef.current;
             setScrollModeActive(true);
             if (Math.abs(palmDelta) > SCROLL_PALM_DELTA_THRESHOLD && now - lastScrollTimeRef.current > SCROLL_COOLDOWN_MS) {
-              const scrollDelta = clamp(-palmDelta * SCROLL_GAIN, -46, 46); // down hand => up scroll
+              const scrollDelta = clamp(-palmDelta * SCROLL_GAIN, -46, 46);
               const target = getScrollContainerAtPoint(lastCursorRef.current);
               scrollByTarget(target, scrollDelta);
               lastScrollTimeRef.current = now;
@@ -440,7 +431,6 @@ export function useGestureControl({ enabled, videoRef, snapRadius = 100 }: UseGe
           setScrollModeActive(false);
           previousPalmYRef.current = palmCenterY;
 
-          // Pinch signal analysis.
           const pinch = calculatePinchStrength(hand, pinchDistanceHistoryRef.current);
           setPinchConfidence(pinch.strength);
 
@@ -463,9 +453,11 @@ export function useGestureControl({ enabled, videoRef, snapRadius = 100 }: UseGe
             stableFrames: stablePinchFramesRef.current,
           });
 
-          const isPinching = clickStateRef.current === 'PINCHING' || clickStateRef.current === 'CLICKED' || stablePinch.shouldStartPinch;
+          const isPinching =
+            clickStateRef.current === 'PINCHING' ||
+            clickStateRef.current === 'CLICKED' ||
+            stablePinch.shouldStartPinch;
 
-          // Index-finger cursor update.
           const nextCursor = updateCursorPosition({
             current: lastCursorRef.current,
             rawTarget: { x: indexTip.x * window.innerWidth, y: indexTip.y * window.innerHeight },
@@ -476,7 +468,6 @@ export function useGestureControl({ enabled, videoRef, snapRadius = 100 }: UseGe
           lastCursorRef.current = nextCursor;
           setCursor(nextCursor);
 
-          // Click state machine.
           const clickState = clickStateMachine({
             state: clickStateRef.current,
             shouldStartPinch: stablePinch.shouldStartPinch,
@@ -495,16 +486,36 @@ export function useGestureControl({ enabled, videoRef, snapRadius = 100 }: UseGe
             setStatus(isPinching ? 'Pinch stabilizing...' : 'Tracking index finger');
           }
 
-          // Optional depth-touch click path (air touch).
+          const prevIndex = previousIndexRef.current;
+          const handVelocity = prevIndex
+            ? Math.hypot(indexTip.x - prevIndex.x / window.innerWidth, indexTip.y - prevIndex.y / window.innerHeight)
+            : 0;
+          previousIndexRef.current = { x: indexTip.x * window.innerWidth, y: indexTip.y * window.innerHeight };
+
+          const zoomResult = updateZoomGesture({
+            engine: zoomEngineRef.current,
+            landmarks: hand,
+            nowMs: now,
+            isClickActive: clickStateRef.current === 'PINCHING' || clickStateRef.current === 'CLICKED',
+            handVelocity,
+          });
+
+          setZoomScale(zoomResult.zoom);
+          setZoomState(zoomResult.state);
+
+          if (zoomResult.state === 'ZOOMING') {
+            setStatus(zoomResult.stableDelta > 0 ? 'Zooming in' : 'Zooming out');
+          }
+
           const prevZ = previousIndexZRef.current;
           const zVelocity = prevZ === null ? 0 : prevZ - indexTip.z;
           previousIndexZRef.current = indexTip.z;
 
           if (
-            !depthTouchActiveRef.current
-            && indexTip.z < DEPTH_TOUCH_START_Z
-            && zVelocity > DEPTH_TOUCH_VELOCITY_THRESHOLD
-            && now - lastDepthTouchTimeRef.current > DEPTH_TOUCH_COOLDOWN_MS
+            !depthTouchActiveRef.current &&
+            indexTip.z < DEPTH_TOUCH_START_Z &&
+            zVelocity > DEPTH_TOUCH_VELOCITY_THRESHOLD &&
+            now - lastDepthTouchTimeRef.current > DEPTH_TOUCH_COOLDOWN_MS
           ) {
             depthTouchActiveRef.current = true;
             setDepthTouchActive(true);
@@ -582,7 +593,9 @@ export function useGestureControl({ enabled, videoRef, snapRadius = 100 }: UseGe
       depthTouchActive,
       scrollModeActive,
       pinchConfidence,
+      zoomScale,
+      zoomState,
     }),
-    [cameraReady, cursor, depthTouchActive, pinchConfidence, scrollModeActive, status, targetRect],
+    [cameraReady, cursor, depthTouchActive, pinchConfidence, scrollModeActive, status, targetRect, zoomScale, zoomState],
   );
 }

@@ -74,6 +74,7 @@ export function App() {
         <span>{gesture.cameraReady ? 'Camera ready' : 'Camera inactive'}</span>
         <span>{gesture.scrollModeActive ? 'Open-palm scroll mode' : 'Index-pointer mode'}</span>
         <span>Pinch confidence: {(gesture.pinchConfidence * 100).toFixed(0)}%</span>
+        <span>Zoom: {gesture.zoomScale.toFixed(2)}x ({gesture.zoomState})</span>
         <span>Cart: {cartCount}</span>
         <span>Likes: {likes}</span>
         <span>Bookmarks: {bookmarks}</span>
@@ -97,6 +98,11 @@ export function App() {
         </div>
       </section>
 
+
+      <div
+        className="zoom-surface"
+        style={{ transform: `scale(${gesture.zoomScale})`, transformOrigin: '50% 0%' }}
+      >
       {activePage === 'home' && (
         <section className="dashboard-grid" aria-label="Home dashboard cards">
           <article className="panel-card">
@@ -162,6 +168,8 @@ export function App() {
           <button onClick={() => setActivePage('home')}>Back to home</button>
         </section>
       )}
+
+      </div>
 
       {enabled && (
         <div
