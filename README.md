@@ -1,58 +1,55 @@
-# Motion Track Prototype (Gesture UX v2)
+# Motion Track Prototype (Gesture UX v3)
 
-This version is tuned for more natural movement and practical website control:
+This build focuses on **stable pinch clicking**, **smooth professional cursor behavior**, and **deeper website architecture** with multi-page style navigation.
 
-- **Index finger = cursor movement**
-- **Whole open hand = scrolling**
-- **Pinch + depth-touch = click**
-- **Adaptive smoothing + FPS throttling** for less robotic motion and better performance
+## Website architecture upgrades
+- Added page tabs with redirects between:
+  - Home
+  - Shop
+  - Social
+  - About
+- Added richer engagement actions (like, bookmark, add-to-cart, page transitions).
+- Added long-form feed and commerce interactions to test real scroll/click usage.
+- Removed visual target boxes from the UI for precision-first interaction.
 
-## Key improvements
+## Gesture engine improvements
 
-1. **Less robotic movement**
-   - Adaptive smoothing (slow/fast alpha based on motion speed)
-   - Dead-zone filtering + intentional movement threshold
-   - Per-frame movement cap to reduce jumps
+### 1) Pinch stability
+- Dynamic threshold using hand size (`distance(landmark 0, landmark 9)`).
+- Hysteresis (`start` threshold vs `release` threshold).
+- Hold/debounce requirement before confirming pinch.
+- Click state machine: `IDLE -> PINCHING -> CLICKED -> RELEASED`.
+- Single click per stable pinch with cooldown.
+- Rolling average of pinch distance over recent frames.
+- Pinch ignored when hand speed is too high.
+- Frame-consistency requirement (must appear across multiple frames).
 
-2. **Performance-safe higher FPS behavior**
-   - Hand results are processed at a capped target rate (`TARGET_FPS = 30`) so interaction stays responsive without overloading CPU/GPU.
+### 2) Cursor stabilization
+- EMA smoothing with adaptive pinch dampening.
+- Velocity/intent filtering and dead-zone jitter suppression.
+- Pinch freeze weight to reduce cursor wobble during click.
+- Cursor acceleration and step spike limiting.
+- Cursor continuity is preserved (no jump-to-finger on re-entry).
 
-3. **Broader stable range + better intent detection**
-   - Dynamic scale compensation based on hand size in frame
-   - Intentional movement filtering so tiny accidental motion does not constantly shift cursor
+### 3) Open-palm scrolling
+- **Index finger only** controls pointer.
+- **Whole open hand** controls scroll.
+- Hand moves **down => page scrolls up**, hand moves **up => page scrolls down**.
 
-4. **Scrolling logic (whole hand only)**
-   - Open palm detection uses multiple extended fingers
-   - Hand moves **down => page scrolls up**
-   - Hand moves **up => page scrolls down**
-   - Scroll target is the nearest scrollable container under current cursor
+### 4) Performance
+- Lightweight logic only (math + small history windows).
+- Frame throttling target set to 45 FPS processing budget.
+- Works with requestAnimationFrame and MediaPipe callbacks in browser.
 
-5. **Smoothed depth-touch click**
-   - Requires both:
-     - fingertip depth threshold, and
-     - forward depth velocity (rapid approach)
-   - Added cooldown to prevent auto-repeat accidental clicks
-
-6. **Cursor continuity when hand re-enters frame**
-   - Cursor starts from previous on-screen position and transitions smoothly; it does not hard-snap to raw fingertip position.
-
-## UX / Frontend updates
-- Removed visual target area boxes from UI.
-- Added a richer interface with topbar, status chips, hero section, trending cards, product cards, and long feed for realistic scroll testing.
-- Added cursor visual states:
-  - normal
-  - depth-touch active
-  - scroll mode active
-
-## Main files
-- `src/gesture/useGestureControl.ts` — gesture engine, smoothing, click/scroll behavior
-- `src/App.tsx` — richer interactive demo layout
-- `src/styles.css` — updated modern UI and cursor state visuals
+## Core requested modular functions
+Defined in `src/gesture/useGestureControl.ts`:
+- `calculatePinchStrength()`
+- `updateCursorPosition()`
+- `detectStablePinch()`
+- `clickStateMachine()`
 
 ## Run
 ```bash
 npm install
 npm run dev
 ```
-
-If MediaPipe CDN scripts fail to load, the hook falls back to mouse mode.
