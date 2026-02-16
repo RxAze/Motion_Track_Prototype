@@ -21,6 +21,7 @@ type UseGestureControlReturn = {
   cameraReady: boolean;
   status: string;
   depthTouchActive: boolean;
+  scrollModeActive: boolean;
 };
 
 type Landmark = { x: number; y: number; z: number };
@@ -65,16 +66,29 @@ const CLICKABLE_SELECTOR = [
   '[tabindex]:not([tabindex="-1"])',
 ].join(',');
 
-const SMOOTHING_ALPHA = 0.14;
-const MOVEMENT_SENSITIVITY = 0.75;
-const DEAD_ZONE_PX = 3;
+const TARGET_FPS = 30;
+const FRAME_INTERVAL_MS = 1000 / TARGET_FPS;
 
-const PINCH_START_THRESHOLD = 0.042;
-const PINCH_END_THRESHOLD = 0.068;
+const BASE_SMOOTHING_ALPHA = 0.24;
+const SLOW_SMOOTHING_ALPHA = 0.14;
+const FAST_SMOOTHING_ALPHA = 0.34;
+const MOVEMENT_SENSITIVITY = 0.9;
+const DEAD_ZONE_PX = 2;
+const INTENTIONAL_MOVE_PX = 4;
+const MAX_CURSOR_STEP_PER_FRAME = 44;
 
-const DEPTH_TOUCH_START_Z = -0.11;
-const DEPTH_TOUCH_END_Z = -0.08;
-const DEPTH_TOUCH_COOLDOWN_MS = 450;
+const PINCH_START_THRESHOLD = 0.035;
+const PINCH_END_THRESHOLD = 0.055;
+const PINCH_COOLDOWN_MS = 220;
+
+const DEPTH_TOUCH_START_Z = -0.145;
+const DEPTH_TOUCH_END_Z = -0.115;
+const DEPTH_TOUCH_VELOCITY_THRESHOLD = 0.02;
+const DEPTH_TOUCH_COOLDOWN_MS = 650;
+
+const SCROLL_PALM_DELTA_THRESHOLD = 0.008;
+const SCROLL_GAIN = 820;
+const SCROLL_COOLDOWN_MS = 12;
 
 function distanceToRectCenter(point: Point, rect: DOMRect) {
   const centerX = rect.left + rect.width / 2;
@@ -90,6 +104,50 @@ function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
 
+function isFingerExtended(landmarks: Landmark[], tipIndex: number, pipIndex: number) {
+  const tip = landmarks[tipIndex];
+  const pip = landmarks[pipIndex];
+  if (!tip || !pip) {
+    return false;
+  }
+  return tip.y < pip.y;
+}
+
+function isOpenPalm(landmarks: Landmark[]) {
+  const extendedCount = [
+    isFingerExtended(landmarks, 8, 6),
+    isFingerExtended(landmarks, 12, 10),
+    isFingerExtended(landmarks, 16, 14),
+    isFingerExtended(landmarks, 20, 18),
+  ].filter(Boolean).length;
+
+  return extendedCount >= 3;
+}
+
+function getScrollContainerAtPoint(point: Point): HTMLElement | Window {
+  const el = document.elementFromPoint(point.x, point.y) as HTMLElement | null;
+  let node: HTMLElement | null = el;
+
+  while (node) {
+    const style = window.getComputedStyle(node);
+    const canScrollY = /(auto|scroll)/.test(style.overflowY) && node.scrollHeight > node.clientHeight + 2;
+    if (canScrollY) {
+      return node;
+    }
+    node = node.parentElement;
+  }
+
+  return window;
+}
+
+function scrollByTarget(target: HTMLElement | Window, dy: number) {
+  if (target === window) {
+    window.scrollBy({ top: dy, behavior: 'auto' });
+    return;
+  }
+  target.scrollBy({ top: dy, behavior: 'auto' });
+}
+
 export function useGestureControl({ enabled, videoRef, snapRadius = 100 }: UseGestureControlOptions): UseGestureControlReturn {
   const [cursor, setCursor] = useState<Point>({
     x: window.innerWidth / 2,
@@ -99,13 +157,23 @@ export function useGestureControl({ enabled, videoRef, snapRadius = 100 }: UseGe
   const [cameraReady, setCameraReady] = useState(false);
   const [status, setStatus] = useState('Idle');
   const [depthTouchActive, setDepthTouchActive] = useState(false);
+  const [scrollModeActive, setScrollModeActive] = useState(false);
 
   const targetElementRef = useRef<HTMLElement | null>(null);
   const pinchActiveRef = useRef(false);
+  const lastPinchClickTimeRef = useRef(0);
   const depthTouchActiveRef = useRef(false);
   const lastDepthTouchTimeRef = useRef(0);
+
+  const lastCursorRef = useRef<Point>({ x: window.innerWidth / 2, y: window.innerHeight / 2 });
+  const previousIndexZRef = useRef<number | null>(null);
+  const previousPalmYRef = useRef<number | null>(null);
+  const previousPalmAreaRef = useRef<number | null>(null);
+
   const cameraRef = useRef<MediaPipeCamera | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const lastFrameTimeRef = useRef(0);
+  const lastScrollTimeRef = useRef(0);
 
   useEffect(() => {
     if (!enabled) {
@@ -113,8 +181,12 @@ export function useGestureControl({ enabled, videoRef, snapRadius = 100 }: UseGe
       setCameraReady(false);
       setStatus('Idle');
       setDepthTouchActive(false);
+      setScrollModeActive(false);
       depthTouchActiveRef.current = false;
       pinchActiveRef.current = false;
+      previousIndexZRef.current = null;
+      previousPalmYRef.current = null;
+      previousPalmAreaRef.current = null;
 
       cameraRef.current?.stop();
       cameraRef.current = null;
@@ -149,6 +221,7 @@ export function useGestureControl({ enabled, videoRef, snapRadius = 100 }: UseGe
 
         const handleMove = (event: MouseEvent) => {
           setCursor({ x: event.clientX, y: event.clientY });
+          lastCursorRef.current = { x: event.clientX, y: event.clientY };
         };
 
         window.addEventListener('mousemove', handleMove);
@@ -179,70 +252,151 @@ export function useGestureControl({ enabled, videoRef, snapRadius = 100 }: UseGe
         hands.setOptions({
           maxNumHands: 1,
           modelComplexity: 1,
-          minDetectionConfidence: 0.62,
-          minTrackingConfidence: 0.55,
+          minDetectionConfidence: 0.5,
+          minTrackingConfidence: 0.5,
           selfieMode: true,
         });
 
-        const smoothing = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
-
         hands.onResults((results) => {
+          const now = performance.now();
+          if (now - lastFrameTimeRef.current < FRAME_INTERVAL_MS) {
+            return;
+          }
+          const dtMs = Math.max(1, now - lastFrameTimeRef.current || FRAME_INTERVAL_MS);
+          lastFrameTimeRef.current = now;
+
           const hand = results.multiHandLandmarks?.[0];
           if (!hand) {
             setStatus('No hand detected');
             setDepthTouchActive(false);
+            setScrollModeActive(false);
             depthTouchActiveRef.current = false;
             pinchActiveRef.current = false;
+            previousPalmYRef.current = null;
+            previousPalmAreaRef.current = null;
+            previousIndexZRef.current = null;
             return;
           }
 
           const indexTip = hand[8];
           const thumbTip = hand[4];
-          if (!indexTip || !thumbTip) {
+          const wrist = hand[0];
+          const middleMcp = hand[9];
+
+          if (!indexTip || !thumbTip || !wrist || !middleMcp) {
             return;
           }
 
-          // Keep cursor direction parallel with physical movement.
-          const targetX = indexTip.x * window.innerWidth;
-          const targetY = indexTip.y * window.innerHeight;
+          const palmOpen = isOpenPalm(hand);
+          const palmCenterY = (wrist.y + middleMcp.y) / 2;
+          const palmArea = landmarkDistance(hand[5], hand[17]);
+
+          const previousPalmY = previousPalmYRef.current;
+          const previousPalmArea = previousPalmAreaRef.current;
+          previousPalmYRef.current = palmCenterY;
+          previousPalmAreaRef.current = palmArea;
+
+          const areaScale = previousPalmArea && palmArea > 0 ? clamp(previousPalmArea / palmArea, 0.85, 1.18) : 1;
+
+          if (palmOpen && previousPalmY !== null) {
+            setScrollModeActive(true);
+            const palmDelta = palmCenterY - previousPalmY;
+            const directionalIntent = Math.abs(palmDelta) > SCROLL_PALM_DELTA_THRESHOLD;
+
+            if (directionalIntent && now - lastScrollTimeRef.current > SCROLL_COOLDOWN_MS) {
+              // Hand down => scroll up; hand up => scroll down.
+              const scrollDelta = clamp(-palmDelta * SCROLL_GAIN, -45, 45);
+              const target = getScrollContainerAtPoint(lastCursorRef.current);
+              scrollByTarget(target, scrollDelta);
+              lastScrollTimeRef.current = now;
+              setStatus('Scroll mode (open palm)');
+            } else {
+              setStatus('Open palm detected');
+            }
+            return;
+          }
+
+          setScrollModeActive(false);
+
+          // Only index finger controls cursor movement.
+          const rawX = indexTip.x * window.innerWidth;
+          const rawY = indexTip.y * window.innerHeight;
 
           const centerX = window.innerWidth / 2;
           const centerY = window.innerHeight / 2;
-          const sensitivityX = centerX + (targetX - centerX) * MOVEMENT_SENSITIVITY;
-          const sensitivityY = centerY + (targetY - centerY) * MOVEMENT_SENSITIVITY;
+          const sensitivityX = centerX + (rawX - centerX) * MOVEMENT_SENSITIVITY * areaScale;
+          const sensitivityY = centerY + (rawY - centerY) * MOVEMENT_SENSITIVITY * areaScale;
 
-          const nextX = SMOOTHING_ALPHA * sensitivityX + (1 - SMOOTHING_ALPHA) * smoothing.x;
-          const nextY = SMOOTHING_ALPHA * sensitivityY + (1 - SMOOTHING_ALPHA) * smoothing.y;
+          const previousCursor = lastCursorRef.current;
+          const distance = Math.hypot(sensitivityX - previousCursor.x, sensitivityY - previousCursor.y);
+          const normalizedSpeed = distance / dtMs;
 
-          if (Math.abs(nextX - smoothing.x) > DEAD_ZONE_PX) {
-            smoothing.x = nextX;
+          const adaptiveAlpha = normalizedSpeed < 0.08
+            ? SLOW_SMOOTHING_ALPHA
+            : normalizedSpeed > 0.28
+              ? FAST_SMOOTHING_ALPHA
+              : BASE_SMOOTHING_ALPHA;
+
+          let nextX = adaptiveAlpha * sensitivityX + (1 - adaptiveAlpha) * previousCursor.x;
+          let nextY = adaptiveAlpha * sensitivityY + (1 - adaptiveAlpha) * previousCursor.y;
+
+          const stepX = nextX - previousCursor.x;
+          const stepY = nextY - previousCursor.y;
+          const stepMag = Math.hypot(stepX, stepY);
+          if (stepMag > MAX_CURSOR_STEP_PER_FRAME) {
+            const ratio = MAX_CURSOR_STEP_PER_FRAME / stepMag;
+            nextX = previousCursor.x + stepX * ratio;
+            nextY = previousCursor.y + stepY * ratio;
           }
-          if (Math.abs(nextY - smoothing.y) > DEAD_ZONE_PX) {
-            smoothing.y = nextY;
+
+          if (Math.abs(nextX - previousCursor.x) < DEAD_ZONE_PX) {
+            nextX = previousCursor.x;
+          }
+          if (Math.abs(nextY - previousCursor.y) < DEAD_ZONE_PX) {
+            nextY = previousCursor.y;
           }
 
-          smoothing.x = clamp(smoothing.x, 0, window.innerWidth);
-          smoothing.y = clamp(smoothing.y, 0, window.innerHeight);
+          const intentionalMove = Math.hypot(nextX - previousCursor.x, nextY - previousCursor.y) > INTENTIONAL_MOVE_PX;
+          if (!intentionalMove) {
+            setStatus('Stable hold');
+          }
 
-          setCursor({ x: smoothing.x, y: smoothing.y });
-          setStatus('Tracking hand');
+          nextX = clamp(nextX, 0, window.innerWidth);
+          nextY = clamp(nextY, 0, window.innerHeight);
+
+          lastCursorRef.current = { x: nextX, y: nextY };
+          setCursor(lastCursorRef.current);
+          if (intentionalMove) {
+            setStatus('Tracking index finger');
+          }
 
           const pinchDistance = landmarkDistance(indexTip, thumbTip);
           if (!pinchActiveRef.current && pinchDistance < PINCH_START_THRESHOLD) {
             pinchActiveRef.current = true;
-            targetElementRef.current?.click();
+            if (now - lastPinchClickTimeRef.current > PINCH_COOLDOWN_MS) {
+              targetElementRef.current?.click();
+              lastPinchClickTimeRef.current = now;
+              setStatus('Pinch click');
+            }
           } else if (pinchActiveRef.current && pinchDistance > PINCH_END_THRESHOLD) {
             pinchActiveRef.current = false;
           }
 
-          // Depth-touch: when index fingertip gets close to camera, trigger click.
-          const now = Date.now();
-          if (!depthTouchActiveRef.current && indexTip.z < DEPTH_TOUCH_START_Z) {
+          // Smooth depth-touch by requiring both depth threshold and fast forward movement.
+          const previousZ = previousIndexZRef.current;
+          const zVelocity = previousZ === null ? 0 : previousZ - indexTip.z;
+          previousIndexZRef.current = indexTip.z;
+
+          if (
+            !depthTouchActiveRef.current
+            && indexTip.z < DEPTH_TOUCH_START_Z
+            && zVelocity > DEPTH_TOUCH_VELOCITY_THRESHOLD
+          ) {
             depthTouchActiveRef.current = true;
             setDepthTouchActive(true);
             if (now - lastDepthTouchTimeRef.current > DEPTH_TOUCH_COOLDOWN_MS) {
-              lastDepthTouchTimeRef.current = now;
               targetElementRef.current?.click();
+              lastDepthTouchTimeRef.current = now;
               setStatus('Depth touch click');
             }
           } else if (depthTouchActiveRef.current && indexTip.z > DEPTH_TOUCH_END_Z) {
@@ -330,7 +484,8 @@ export function useGestureControl({ enabled, videoRef, snapRadius = 100 }: UseGe
       cameraReady,
       status,
       depthTouchActive,
+      scrollModeActive,
     }),
-    [cameraReady, cursor, depthTouchActive, status, targetRect],
+    [cameraReady, cursor, depthTouchActive, scrollModeActive, status, targetRect],
   );
 }
