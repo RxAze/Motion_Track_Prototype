@@ -1,0 +1,21 @@
+# Python virtual environments
+.venv/
+.wsl_venv/
+venv/
+
+# Node / frontend
+node_modules/
+dist/
+
+# Build/cache artifacts
+*.tsbuildinfo
+__pycache__/
+*.pyc
+ml/__pycache__/
+ml/exports/
+# Uncomment to keep large local training data out of git:
+# ml/dataset.jsonl
+
+# OS/editor noise
+.DS_Store
+Thumbs.db

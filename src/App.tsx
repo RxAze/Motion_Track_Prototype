@@ -21,6 +21,7 @@ const products = [
 
 export function App() {
   const [enabled, setEnabled] = useState(false);
+  const [trainingMode, setTrainingMode] = useState(false);
   const [activePage, setActivePage] = useState<PageKey>('home');
   const [likes, setLikes] = useState(1260);
   const [cartCount, setCartCount] = useState(0);
@@ -28,7 +29,7 @@ export function App() {
   const [search, setSearch] = useState('');
 
   const videoRef = useRef<HTMLVideoElement>(null);
-  const gesture = useGestureControl({ enabled, videoRef, snapRadius: 92 });
+  const gesture = useGestureControl({ enabled, videoRef, snapRadius: 92, mlInferenceEnabled: !trainingMode });
 
   const enableLabel = useMemo(
     () => (enabled ? 'Disable Gesture Control' : 'Enable Gesture Control'),
@@ -54,6 +55,9 @@ export function App() {
             onChange={(event) => setSearch(event.target.value)}
           />
           <button onClick={() => setEnabled((prev) => !prev)}>{enableLabel}</button>
+          <button onClick={() => setTrainingMode((prev) => !prev)}>
+            {trainingMode ? 'Training Mode: ON' : 'Training Mode: OFF'}
+          </button>
         </div>
       </nav>
 
@@ -73,12 +77,41 @@ export function App() {
         <span>Status: {gesture.status}</span>
         <span>{gesture.cameraReady ? 'Camera ready' : 'Camera inactive'}</span>
         <span>{gesture.scrollModeActive ? 'Open-palm scroll mode' : 'Index-pointer mode'}</span>
+        <span>{trainingMode ? 'ML inference disabled' : 'ML inference enabled'}</span>
+        <span>ML gesture: {gesture.mlGesture}</span>
+        <span>{gesture.recording ? 'Recorder ON (R)' : 'Recorder OFF (R)'}</span>
+        <span>Recorder label: {gesture.recorderLabel}</span>
+        <span>Dataset samples: {gesture.datasetSamples}</span>
+        <span>{gesture.modelReady ? 'Model ready' : 'Model not loaded'}</span>
+        <span>
+          ML probs N/O/P: {gesture.mlProbabilities.neutral.toFixed(2)} / {gesture.mlProbabilities.open_palm.toFixed(2)} / {gesture.mlProbabilities.pinch.toFixed(2)}
+        </span>
+        <span>ML errors: {gesture.mlDebug.errorCount}</span>
+        <span>Model F dim: {gesture.mlDebug.modelFeatureDim ?? 'n/a'}</span>
         <span>Pinch confidence: {(gesture.pinchConfidence * 100).toFixed(0)}%</span>
         <span>Zoom: {gesture.zoomScale.toFixed(2)}x ({gesture.zoomState})</span>
         <span>Cart: {cartCount}</span>
         <span>Likes: {likes}</span>
         <span>Bookmarks: {bookmarks}</span>
       </section>
+
+      {enabled && (
+        <aside className="recorder-hud" aria-live="polite">
+          <h3>Dataset Recorder</h3>
+          <p>{gesture.recording ? 'Recording: ON' : 'Recording: OFF'}</p>
+          <p>Label: {gesture.recorderLabel}</p>
+          <p>Samples: {gesture.datasetSamples}</p>
+          <p>Model: {gesture.modelReady ? 'ready' : 'missing'}</p>
+          <p>
+            Probs N/O/P: {gesture.mlProbabilities.neutral.toFixed(2)} / {gesture.mlProbabilities.open_palm.toFixed(2)} / {gesture.mlProbabilities.pinch.toFixed(2)}
+          </p>
+          <p>Errors: {gesture.mlDebug.errorCount}</p>
+          <p>Feature dim: {gesture.mlDebug.modelFeatureDim ?? 'n/a'}</p>
+          <p>Last error: {gesture.mlDebug.lastError ?? 'none'}</p>
+          <p>Training mode: {trainingMode ? 'ON (ML inference off)' : 'OFF (ML inference on)'}</p>
+          <p>Hotkeys: R toggle, 1 neutral, 2 open_palm, 3 pinch, S save JSONL, C clear dataset</p>
+        </aside>
+      )}
 
       <section className="hero">
         <div>

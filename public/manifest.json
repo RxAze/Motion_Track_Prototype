@@ -1,0 +1,16 @@
+{
+  "manifest_version": 3,
+  "name": "Motion Track Prototype",
+  "version": "0.1.0",
+  "description": "Gesture UX prototype",
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self';"
+  },
+  "action": {
+    "default_title": "Open Motion Track"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "permissions": ["tabs"]
+}
